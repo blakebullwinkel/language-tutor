@@ -6,26 +6,24 @@ from typing import Optional
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
-from langchain.vectorstores import VectorStore
+# import pyttsx3
 
-from callback import QuestionGenCallbackHandler, StreamingLLMCallbackHandler
-# from query_data import get_chain
+from callback import StreamingLLMCallbackHandler
 from chain import get_chain
 from schemas import ChatResponse
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-vectorstore: Optional[VectorStore] = None
+# engine = pyttsx3.init()
 
-
-@app.on_event("startup")
-async def startup_event():
-    logging.info("loading vectorstore")
-    if not Path("vectorstore.pkl").exists():
-        raise ValueError("vectorstore.pkl does not exist, please run ingest.py first")
-    with open("vectorstore.pkl", "rb") as f:
-        global vectorstore
-        vectorstore = pickle.load(f)
+# @app.on_event("startup")
+# async def startup_event():
+#     logging.info("loading vectorstore")
+#     if not Path("vectorstore.pkl").exists():
+#         raise ValueError("vectorstore.pkl does not exist, please run ingest.py first")
+#     with open("vectorstore.pkl", "rb") as f:
+#         global vectorstore
+#         vectorstore = pickle.load(f)
 
 
 @app.get("/")
@@ -36,10 +34,7 @@ async def get(request: Request):
 @app.websocket("/chat")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    question_handler = QuestionGenCallbackHandler(websocket)
     stream_handler = StreamingLLMCallbackHandler(websocket)
-    chat_history = []
-    # qa_chain = get_chain(vectorstore, question_handler, stream_handler)
     chain = get_chain(stream_handler=stream_handler)
     # Use the below line instead of the above line to enable tracing
     # Ensure `langchain-server` is running
@@ -56,17 +51,18 @@ async def websocket_endpoint(websocket: WebSocket):
             start_resp = ChatResponse(sender="bot", message="", type="start")
             await websocket.send_json(start_resp.dict())
 
+            # Get and speak the result
             result = await chain.apredict(input=question)
-            # result = await chain.acall(
-            #     {"question": question, "chat_history": chat_history}
-            # )
-            # chat_history.append((question, result["answer"]))
+            # engine.say(result)
+            # engine.runAndWait()
 
             end_resp = ChatResponse(sender="bot", message="", type="end")
             await websocket.send_json(end_resp.dict())
+
         except WebSocketDisconnect:
             logging.info("websocket disconnect")
             break
+
         except Exception as e:
             logging.error(e)
             resp = ChatResponse(
@@ -75,6 +71,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 type="error",
             )
             await websocket.send_json(resp.dict())
+
+    # Stop the pyttsx3 engine
+    # engine.stop()
 
 
 if __name__ == "__main__":
